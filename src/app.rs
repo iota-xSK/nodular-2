@@ -198,7 +198,9 @@ impl App {
                             && position.y >= y_1
                             && position.y <= y_2
                         {
-                            self.ui_state.selected.push(i)
+                            if let Some(_) = self.automaton.automaton.graph.nodes_read[i] {
+                                self.ui_state.selected.push(i)
+                            }
                         }
                     }
                 }
