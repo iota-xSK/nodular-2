@@ -55,8 +55,46 @@ impl App {
                         .into(),
                 );
             }
+
+            // connect nodes
+            if self
+                .rl
+                .is_mouse_button_pressed(MouseButton::MOUSE_RIGHT_BUTTON)
+            {
+                self.ui_state.connecting_from = self.ui_state.hovering_over;
+            }
+            if self
+                .rl
+                .is_mouse_button_released(MouseButton::MOUSE_RIGHT_BUTTON)
+            {
+                if let (Some(hovering), Some(from)) =
+                    (self.ui_state.hovering_over, self.ui_state.connecting_from)
+                {
+                    self.automaton.automaton.graph.add_edge(from, hovering);
+                }
+                self.ui_state.connecting_from = None;
+            }
             self.control_camera();
             self.render();
+
+            // selecting nodes
+
+            if self
+                .rl
+                .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+            {
+                if let Some(hovering) = self.ui_state.hovering_over {
+                    if self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+                        if !self.ui_state.selected.contains(&hovering) {
+                            self.ui_state.selected.push(hovering)
+                        }
+                    } else {
+                        self.ui_state.selected = vec![hovering]
+                    }
+                } else {
+                    self.ui_state.selected = vec![];
+                }
+            }
         }
     }
 
@@ -95,20 +133,42 @@ impl App {
         d.clear_background(Color::color_from_hsv(0.5, 0.1, 1.0));
 
         // render canvas
+        //
+        // selection_circles
+        for selected in &self.ui_state.selected {
+            d.draw_circle_v(
+                node_positions[*selected],
+                32.0 * self.ui_state.camera.zoom,
+                Color::BLACK,
+            )
+        }
 
+        // nodes
         for (node, position) in self
             .automaton
             .automaton
             .graph
             .nodes_write
             .iter()
-            .zip(node_positions)
+            .zip(&node_positions)
         {
             if let Some(node) = node {
                 d.draw_circle_v(
                     position,
                     30.0 * self.ui_state.camera.zoom,
                     Color::color_from_hsv(distribute_hue(*node), 0.5, 0.90),
+                )
+            }
+        }
+        // connections
+        for i in 0..self.automaton.automaton.graph.edges.len() {
+            for edge in &self.automaton.automaton.graph.edges[i] {
+                draw_spring_arrow(
+                    &mut d,
+                    node_positions[i].into(),
+                    node_positions[*edge].into(),
+                    Color::BLACK,
+                    30.0 * self.ui_state.camera.zoom,
                 )
             }
         }
@@ -140,11 +200,18 @@ impl App {
 
 struct UiState {
     camera: Camera2D,
+
     playing: bool,
+
     selected_state: i32,
     type_scroll: i32,
+
     connecting_from: Option<usize>,
     hovering_over: Option<usize>,
+    selected: Vec<usize>,
+
+    click_position: Vec2,
+    dragging_node_positions: Option<Vec<Vec2>>,
 }
 
 impl UiState {
@@ -156,6 +223,9 @@ impl UiState {
             type_scroll: 0,
             connecting_from: None,
             hovering_over: None,
+            selected: vec![],
+            click_position: Vec2::new(0.0, 0.0),
+            dragging_node_positions: None,
         }
     }
 }

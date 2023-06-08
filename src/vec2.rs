@@ -104,7 +104,7 @@ impl ops::Div<f32> for Vec2 {
 }
 
 impl Vec2 {
-    fn normalized(&self) -> Vec2 {
+    pub fn normalized(&self) -> Vec2 {
         let length = (self.x * self.x + self.y * self.y).sqrt();
         Vec2::new(self.x / length, self.y / length)
     }
