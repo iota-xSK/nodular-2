@@ -95,6 +95,45 @@ impl App {
                     self.ui_state.selected = vec![];
                 }
             }
+
+            // moving nodes
+            if self
+                .rl
+                .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+            {
+                self.ui_state.dragging_node_positions = None;
+            }
+
+            if self
+                .rl
+                .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+            {
+                self.ui_state.click_position = self.rl.get_mouse_position().into();
+                self.ui_state.dragging_node_positions = Some(self.automaton.node_possions.clone());
+            }
+            if self.rl.is_mouse_button_down(MouseButton::MOUSE_LEFT_BUTTON) {
+                for selected in &self.ui_state.selected {
+                    if let Some(dragging) = self.ui_state.dragging_node_positions.clone() {
+                        self.automaton.node_possions[*selected] = dragging[*selected]
+                            + self
+                                .rl
+                                .get_screen_to_world2D(
+                                    self.rl.get_mouse_position(),
+                                    self.ui_state.camera,
+                                )
+                                .into()
+                            - self
+                                .rl
+                                .get_screen_to_world2D(
+                                    <Vec2 as Into<Vector2>>::into(self.ui_state.click_position),
+                                    self.ui_state.camera,
+                                )
+                                .into()
+                    } else {
+                        println!("error")
+                    }
+                }
+            }
         }
     }
 
