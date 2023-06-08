@@ -14,7 +14,7 @@ impl Automaton {
         std::mem::swap(&mut self.graph.nodes_read, &mut self.graph.nodes_write);
 
         for node in 0..self.graph.nodes_write.len() {
-            self.rules.apply(&mut self.graph, node);
+            self.rules.apply(&mut self.graph, node).unwrap();
         }
     }
 }
@@ -51,7 +51,7 @@ impl Pattern {
     fn pattern_match(&self, node: usize, graph: &Graph) -> Option<bool> {
         let nbh = graph.edges[node]
             .iter()
-            .map(|a| graph.nodes_write[*a])
+            .map(|a| graph.nodes_read[*a])
             .collect::<Option<Vec<u32>>>();
         if let Some(nbh) = nbh {
             match self {
@@ -128,7 +128,8 @@ impl Ruleset {
     pub fn apply(&self, graph: &mut Graph, idx: usize) -> Option<()> {
         for rule in self.rules[graph.nodes_read[idx]? as usize].iter() {
             if rule.pattern.pattern_match(idx, graph)? {
-                graph.nodes_write[idx] = Some(rule.replacement)
+                graph.nodes_write[idx] = Some(rule.replacement);
+                return Some(());
             }
         }
         None

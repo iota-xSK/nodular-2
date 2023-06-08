@@ -5,7 +5,6 @@ use std::ops::{Deref, DerefMut};
 use raylib::prelude::*;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
-#[serde(remote = "Vector2")]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,

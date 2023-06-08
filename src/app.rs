@@ -1,8 +1,11 @@
 use raylib::{prelude::*, RaylibHandle, RaylibThread};
+use rfd::FileDialog;
 
 use crate::{automaton::Automaton, vec2::Vec2};
 use std::borrow::Borrow;
 use std::ffi::{CStr, CString};
+use std::fs::{self, File};
+use std::io::Write;
 
 pub struct App {
     automaton: VisualAutomaton,
@@ -33,6 +36,15 @@ impl App {
 
     pub fn run(&mut self) {
         while !self.rl.window_should_close() {
+            if (self.rl.get_time() % 0.5) < self.rl.get_frame_time() as f64 && self.ui_state.playing
+            {
+                self.automaton.automaton.step();
+            }
+
+            // pause unpuase
+            if self.rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+                self.ui_state.playing = !self.ui_state.playing;
+            }
             // find coliding node
             self.ui_state.hovering_over = None;
             for (i, position) in self.automaton.node_possions.iter().enumerate() {
@@ -70,7 +82,13 @@ impl App {
                 if let (Some(hovering), Some(from)) =
                     (self.ui_state.hovering_over, self.ui_state.connecting_from)
                 {
-                    self.automaton.automaton.graph.add_edge(from, hovering);
+                    if from != hovering {
+                        if self.automaton.automaton.graph.edges[hovering].contains(&from) {
+                            self.automaton.automaton.graph.remove_edge(hovering, from);
+                        } else {
+                            self.automaton.automaton.graph.add_edge(hovering, from);
+                        }
+                    }
                 }
                 self.ui_state.connecting_from = None;
             }
@@ -134,6 +152,75 @@ impl App {
                     }
                 }
             }
+            // deleting nodes
+            if self.rl.is_key_pressed(KeyboardKey::KEY_DELETE) {
+                for node in &self.ui_state.selected {
+                    self.automaton.automaton.graph.remove_node(*node);
+                }
+                self.ui_state.selected = vec![];
+            }
+            // changing state
+            if self.rl.is_key_pressed(KeyboardKey::KEY_S) {
+                for node in &self.ui_state.selected {
+                    self.automaton.automaton.graph.nodes_write[*node] =
+                        Some(self.ui_state.selected_state as u32)
+                }
+            }
+            // box select
+            if self
+                .rl
+                .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+            {
+                if let Some(box_drag_start) = self.ui_state.box_select_corner {
+                    let rect = find_rect(
+                        box_drag_start.into(),
+                        self.rl.get_screen_to_world2D(
+                            self.rl.get_mouse_position(),
+                            self.ui_state.camera,
+                        ),
+                    );
+
+                    let x_1 = rect.x;
+                    let y_1 = rect.y;
+                    let x_2 = rect.width + rect.x;
+                    let y_2 = rect.height + rect.y;
+
+                    if !self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+                        self.ui_state.selected = vec![];
+                    }
+                    for (i, position) in self.automaton.node_possions.iter().enumerate() {
+                        if position.x >= x_1
+                            && position.x <= x_2
+                            && position.y >= y_1
+                            && position.y <= y_2
+                        {
+                            self.ui_state.selected.push(i)
+                        }
+                    }
+                }
+            }
+
+            if let None = self.ui_state.hovering_over {
+                if self
+                    .rl
+                    .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                {
+                    self.ui_state.box_select_corner = Some(
+                        self.rl
+                            .get_screen_to_world2D(
+                                self.rl.get_mouse_position(),
+                                self.ui_state.camera,
+                            )
+                            .into(),
+                    );
+                }
+            }
+            if self
+                .rl
+                .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+            {
+                self.ui_state.box_select_corner = None
+            }
         }
     }
 
@@ -168,6 +255,21 @@ impl App {
         let height = self.rl.get_screen_height();
         let _width = self.rl.get_screen_width();
         let _mouse_position = self.rl.get_mouse_position();
+
+        let mut select_rect = None;
+
+        if let Some(drag_box) = self.ui_state.box_select_corner {
+            select_rect = Some(find_rect(
+                self.rl
+                    .get_world_to_screen2D(
+                        <Vec2 as Into<Vector2>>::into(drag_box),
+                        self.ui_state.camera,
+                    )
+                    .into(),
+                _mouse_position,
+            ));
+        }
+
         let mut d = self.rl.begin_drawing(&self.thread);
         d.clear_background(Color::color_from_hsv(0.5, 0.1, 1.0));
 
@@ -204,12 +306,17 @@ impl App {
             for edge in &self.automaton.automaton.graph.edges[i] {
                 draw_spring_arrow(
                     &mut d,
-                    node_positions[i].into(),
                     node_positions[*edge].into(),
+                    node_positions[i].into(),
                     Color::BLACK,
                     30.0 * self.ui_state.camera.zoom,
                 )
             }
+        }
+
+        // box select
+        if let Some(rect) = select_rect {
+            d.draw_rectangle_rec(rect, Color::new(10, 10, 255, 40))
         }
 
         // render gui
@@ -234,6 +341,40 @@ impl App {
             // &mut self.selected_state,
             self.ui_state.selected_state,
         );
+
+        if d.gui_button(rrect(0, 365, 100, 30), Some(rstr!("open world"))) {
+            if let Some(file) = FileDialog::new().pick_file() {
+                if let Ok(content) = fs::read_to_string(file) {
+                    if let Ok(deserialized) = serde_json::from_str(&content) {
+                        self.automaton = deserialized;
+                    }
+                } else {
+                    println!("unable to read file")
+                }
+            } else {
+                println!("unable to pick file")
+            }
+        }
+        if d.gui_button(rrect(0, 400, 100, 30), Some(rstr!("save_world"))) {
+            if let Some(file_choice) = FileDialog::new().save_file() {
+                if let Ok(mut file) = File::create(file_choice) {
+                    if let Ok(parsed) = serde_json::to_string_pretty(&self.automaton) {
+                        file.write_all(parsed.as_bytes())
+                            .unwrap_or_else(|_| println!("unable to write to file"));
+                    } else {
+                        println!("unable to parse file")
+                    }
+                } else {
+                    println!("unable to create file")
+                }
+            } else {
+                println!("unable to pick file to create")
+            }
+        }
+
+        if d.gui_button(rrect(0, 435, 100, 30), Some(rstr!("step"))) {
+            self.automaton.automaton.step();
+        }
     }
 }
 
@@ -251,6 +392,8 @@ struct UiState {
 
     click_position: Vec2,
     dragging_node_positions: Option<Vec<Vec2>>,
+
+    box_select_corner: Option<Vec2>,
 }
 
 impl UiState {
@@ -265,10 +408,12 @@ impl UiState {
             selected: vec![],
             click_position: Vec2::new(0.0, 0.0),
             dragging_node_positions: None,
+            box_select_corner: None,
         }
     }
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct VisualAutomaton {
     automaton: Automaton,
     node_possions: Vec<Vec2>,
@@ -342,5 +487,14 @@ fn draw_spring_arrow(d: &mut RaylibDrawHandle, start: Vec2, end: Vec2, color: Co
         <Vec2 as Into<Vector2>>::into(control_point),
         1.0,
         color,
+    )
+}
+
+fn find_rect(corner_1: Vector2, corner_2: Vector2) -> Rectangle {
+    Rectangle::new(
+        corner_1.x.min(corner_2.x),
+        corner_1.y.min(corner_2.y),
+        (corner_2.x - corner_1.x).abs(),
+        (corner_2.y - corner_1.y).abs(),
     )
 }

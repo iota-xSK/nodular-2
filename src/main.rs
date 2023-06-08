@@ -9,23 +9,29 @@ use crate::app::*;
 use crate::graph::Graph;
 use crate::vec2::Vec2;
 fn main() -> Result<(), ()> {
-    println!("Hello, world!");
-
-    let pattern = Pattern::Wildcard;
-
+    let wildcard = Pattern::Wildcard;
+    let turn_on = Pattern::Or(
+        Box::new(Pattern::Equal {
+            state: 0,
+            number: 1,
+        }),
+        Box::new(Pattern::Equal {
+            state: 0,
+            number: 2,
+        }),
+    );
     let mut graph = Graph::new();
-
-    graph.add_node(0);
-    graph.add_node(1);
-    graph.add_node(2);
-
-    graph.add_edge(0, 1);
-    graph.add_edge(1, 2);
 
     let mut automaton = Automaton::new(
         Ruleset::new(
-            vec![vec![Rule::new(pattern, 0)]],
-            vec!["hello world".to_string()],
+            vec![
+                vec![
+                    Rule::new(turn_on.clone(), 0),
+                    Rule::new(wildcard.clone(), 1),
+                ],
+                vec![Rule::new(turn_on.clone(), 0), Rule::new(wildcard, 1)],
+            ],
+            vec!["electron".to_string(), "wire".to_string()],
         )
         .unwrap(),
         graph,
