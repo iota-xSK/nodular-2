@@ -1,4 +1,4 @@
-use crate::vec2::Vec2;
+use crate::{app::UiState, vec2::Vec2};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Node {
@@ -67,6 +67,23 @@ impl Graph {
     // }
     pub fn add_node(&mut self, node: Node) {
         self.nodes.push(node)
+    }
+    pub fn remove_node_from_app(&mut self, idx: usize, ui: &mut UiState) {
+        self.nodes.swap_remove(idx);
+        let len = self.nodes.len();
+        for node in self.nodes.iter_mut() {
+            node.edges.retain(|a| *a != idx);
+            node.edges = node
+                .edges
+                .iter()
+                .map(|a| if *a == len { idx } else { *a })
+                .collect();
+        }
+        ui.selected = ui
+            .selected
+            .iter()
+            .map(|a| if *a == len { idx } else { *a })
+            .collect();
     }
     pub fn remove_node(&mut self, idx: usize) {
         self.nodes.swap_remove(idx);

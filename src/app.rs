@@ -174,8 +174,10 @@ impl App {
             }
             // deleting nodes
             if self.rl.is_key_pressed(KeyboardKey::KEY_DELETE) {
-                for node in &self.ui_state.selected {
-                    self.automaton.graph.remove_node(*node);
+                while let Some(node) = self.ui_state.selected.pop() {
+                    self.automaton
+                        .graph
+                        .remove_node_from_app(node, &mut self.ui_state);
                 }
                 self.ui_state.selected = vec![];
             }
@@ -247,11 +249,14 @@ impl App {
             {
                 self.ui_state.box_select_corner = None
             }
-            // copy
 
-            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-                && self.rl.is_key_pressed(KeyboardKey::KEY_C)
-            {}
+            if let Some(number) = self.rl.get_key_pressed_number() {
+                if (number as i32) - 48 <= self.automaton.rules.names.len() as i32
+                    && (number as i32 - 48) >= 0
+                {
+                    self.ui_state.selected_state = (number as i32) - 49
+                }
+            }
             // // copy
             //
             // if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)

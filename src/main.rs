@@ -69,7 +69,6 @@ fn main() -> Result<(), ()> {
     graph.add_edge(0, 4);
 
     println!("{:?}", graph);
-    graph.remove_node(1);
     println!("{:?}", graph);
 
     Ok(())
