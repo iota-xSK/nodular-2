@@ -36,6 +36,7 @@ impl Clipboard {
                 }
             }
         }
+        app.ui_state.selected = new_indexes.iter().filter_map(|a| *a).collect();
         for (i, new_index) in new_indexes.iter().enumerate() {
             if let Some(new_index) = new_index {
                 let mut new = vec![];

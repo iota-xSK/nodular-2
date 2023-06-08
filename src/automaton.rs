@@ -1,4 +1,4 @@
-use crate::graph::Graph;
+use crate::graph::{Graph, Node};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Automaton {
@@ -11,10 +11,12 @@ impl Automaton {
         Self { rules, graph }
     }
     pub fn step(&mut self) {
-        std::mem::swap(&mut self.graph.nodes_read, &mut self.graph.nodes_write);
+        for node in self.graph.nodes.iter_mut() {
+            std::mem::swap(&mut node.read, &mut node.write);
+        }
 
-        for node in 0..self.graph.nodes_write.len() {
-            self.rules.apply(&mut self.graph, node).unwrap();
+        for node in 0..self.graph.nodes.len() {
+            self.rules.apply(node, &mut self.graph).unwrap();
         }
     }
 }
@@ -48,64 +50,53 @@ pub enum Pattern {
 }
 
 impl Pattern {
-    fn pattern_match(&self, node: usize, graph: &Graph) -> Option<bool> {
-        let nbh = graph.edges[node]
-            .iter()
-            .map(|a| graph.nodes_read[*a])
-            .collect::<Option<Vec<u32>>>();
-        if let Some(nbh) = nbh {
-            match self {
-                Pattern::Equal { state, number } => {
-                    if nbh.iter().filter(|a| a == &state).count() as u32 == *number {
-                        return Some(true);
-                    } else {
-                        return Some(false);
-                    }
-                }
-                Pattern::Gth { state, number } => {
-                    if nbh.iter().filter(|a| a == &state).count() as u32 > *number {
-                        return Some(true);
-                    } else {
-                        return Some(false);
-                    }
-                }
-                Pattern::Lth { state, number } => {
-                    if (nbh.iter().filter(|a| a == &state).count() as u32) < *number {
-                        return Some(true);
-                    } else {
-                        return Some(false);
-                    }
-                }
-                Pattern::Geq { state, number } => {
-                    if nbh.iter().filter(|a| a == &state).count() as u32 >= *number {
-                        return Some(true);
-                    } else {
-                        return Some(false);
-                    }
-                }
-                Pattern::Leq { state, number } => {
-                    if nbh.iter().filter(|a| a == &state).count() as u32 <= *number {
-                        return Some(true);
-                    } else {
-                        return Some(false);
-                    }
-                }
-                Pattern::Or(left, right) => {
-                    return Some(
-                        left.pattern_match(node, graph)? || right.pattern_match(node, graph)?,
-                    )
-                }
-                Pattern::And(left, right) => {
-                    return Some(
-                        left.pattern_match(node, graph)? && right.pattern_match(node, graph)?,
-                    )
-                }
-                Pattern::Not(u) => return Some(!u.pattern_match(node, graph)?),
-                Pattern::Wildcard => return Some(true),
+    pub fn pattern_match(&self, node: usize, graph: &Graph) -> bool {
+        match self {
+            Pattern::Equal { state, number } => {
+                graph.nodes[node]
+                    .edges
+                    .iter()
+                    .filter(|a| graph.nodes[**a].read == *state)
+                    .count() as u32
+                    == *number
             }
-        };
-
-        unreachable!()
+            Pattern::Gth { state, number } => {
+                graph.nodes[node]
+                    .edges
+                    .iter()
+                    .filter(|a| graph.nodes[**a].read == *state)
+                    .count() as u32
+                    > *number
+            }
+            Pattern::Lth { state, number } => {
+                (graph.nodes[node]
+                    .edges
+                    .iter()
+                    .filter(|a| graph.nodes[**a].read == *state)
+                    .count() as u32)
+                    < *number
+            }
+            Pattern::Geq { state, number } => {
+                (graph.nodes[node]
+                    .edges
+                    .iter()
+                    .filter(|a| graph.nodes[**a].read == *state)
+                    .count() as u32)
+                    >= *number
+            }
+            Pattern::Leq { state, number } => {
+                (graph.nodes[node]
+                    .edges
+                    .iter()
+                    .filter(|a| graph.nodes[**a].read == *state)
+                    .count() as u32)
+                    <= *number
+            }
+            Pattern::Or(a, b) => a.pattern_match(node, graph) || b.pattern_match(node, graph),
+            Pattern::And(a, b) => a.pattern_match(node, graph) && b.pattern_match(node, graph),
+            Pattern::Not(a) => !a.pattern_match(node, graph),
+            Pattern::Wildcard => true,
+        }
     }
 }
 
@@ -125,10 +116,10 @@ impl Ruleset {
         Some(Ruleset { rules, names })
     }
 
-    pub fn apply(&self, graph: &mut Graph, idx: usize) -> Option<()> {
-        for rule in self.rules[graph.nodes_read[idx]? as usize].iter() {
-            if rule.pattern.pattern_match(idx, graph)? {
-                graph.nodes_write[idx] = Some(rule.replacement);
+    pub fn apply(&self, idx: usize, graph: &mut Graph) -> Option<()> {
+        for rule in &self.rules[graph.nodes[idx].read as usize] {
+            if rule.pattern.pattern_match(idx, graph) {
+                graph.nodes[idx].write = rule.replacement;
                 return Some(());
             }
         }

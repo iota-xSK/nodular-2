@@ -1,8 +1,7 @@
 use raylib::{prelude::*, RaylibHandle, RaylibThread};
 use rfd::FileDialog;
 
-use crate::clipboard::Clipboard;
-use crate::graph::Graph;
+use crate::graph::{Graph, Node};
 use crate::{automaton::Automaton, vec2::Vec2};
 use std::borrow::Borrow;
 use std::ffi::{CStr, CString};
@@ -10,15 +9,16 @@ use std::fs::{self, File};
 use std::io::Write;
 
 pub struct App {
-    pub automaton: VisualAutomaton,
+    pub automaton: Automaton,
     rl: RaylibHandle,
     thread: RaylibThread,
     pub ui_state: UiState,
-    clipboard: Option<Clipboard>,
+    // clipboard: Option<Clipboard>,
+    clipboard: Option<Graph>,
 }
 
 impl App {
-    pub fn new(automaton: VisualAutomaton, camera: Camera2D) -> Self {
+    pub fn new(automaton: Automaton, camera: Camera2D) -> Self {
         let (rl, thread) = raylib::init()
             .size(400, 800)
             .resizable()
@@ -42,7 +42,7 @@ impl App {
         while !self.rl.window_should_close() {
             if (self.rl.get_time() % 0.5) < self.rl.get_frame_time() as f64 && self.ui_state.playing
             {
-                self.automaton.automaton.step();
+                self.automaton.step();
             }
 
             // pause unpuase
@@ -51,11 +51,18 @@ impl App {
             }
             // find coliding node
             self.ui_state.hovering_over = None;
-            for (i, position) in self.automaton.node_possions.iter().enumerate() {
+            for (i, position) in self
+                .automaton
+                .graph
+                .nodes
+                .iter()
+                .map(|a| a.position)
+                .enumerate()
+            {
                 if check_collision_point_circle(
                     self.rl
                         .get_screen_to_world2D(self.rl.get_mouse_position(), self.ui_state.camera),
-                    <Vec2 as Into<Vector2>>::into(*position),
+                    <Vec2 as Into<Vector2>>::into(position),
                     30.0 * self.ui_state.camera.zoom,
                 ) {
                     self.ui_state.hovering_over = Some(i)
@@ -64,12 +71,14 @@ impl App {
 
             // add node
             if self.rl.is_key_pressed(KeyboardKey::KEY_A) {
-                self.automaton.add_node(
+                self.automaton.graph.add_node(Node::new(
                     self.ui_state.selected_state as u32,
+                    self.ui_state.selected_state as u32,
+                    vec![],
                     self.rl
                         .get_screen_to_world2D(self.rl.get_mouse_position(), self.ui_state.camera)
                         .into(),
-                );
+                ));
             }
 
             // connect nodes
@@ -87,10 +96,10 @@ impl App {
                     (self.ui_state.hovering_over, self.ui_state.connecting_from)
                 {
                     if from != hovering {
-                        if self.automaton.automaton.graph.edges[hovering].contains(&from) {
-                            self.automaton.automaton.graph.remove_edge(hovering, from);
+                        if self.automaton.graph.nodes[hovering].edges.contains(&from) {
+                            self.automaton.graph.remove_edge(hovering, from);
                         } else {
-                            self.automaton.automaton.graph.add_edge(hovering, from);
+                            self.automaton.graph.add_edge(hovering, from);
                         }
                     }
                 }
@@ -131,12 +140,19 @@ impl App {
                 .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
             {
                 self.ui_state.click_position = self.rl.get_mouse_position().into();
-                self.ui_state.dragging_node_positions = Some(self.automaton.node_possions.clone());
+                self.ui_state.dragging_node_positions = Some(
+                    self.automaton
+                        .graph
+                        .nodes
+                        .iter()
+                        .map(|a| a.position)
+                        .collect(),
+                );
             }
             if self.rl.is_mouse_button_down(MouseButton::MOUSE_LEFT_BUTTON) {
                 for selected in &self.ui_state.selected {
                     if let Some(dragging) = self.ui_state.dragging_node_positions.clone() {
-                        self.automaton.node_possions[*selected] = dragging[*selected]
+                        self.automaton.graph.nodes[*selected].position = dragging[*selected]
                             + self
                                 .rl
                                 .get_screen_to_world2D(
@@ -159,15 +175,14 @@ impl App {
             // deleting nodes
             if self.rl.is_key_pressed(KeyboardKey::KEY_DELETE) {
                 for node in &self.ui_state.selected {
-                    self.automaton.automaton.graph.remove_node(*node);
+                    self.automaton.graph.remove_node(*node);
                 }
                 self.ui_state.selected = vec![];
             }
             // changing state
             if self.rl.is_key_pressed(KeyboardKey::KEY_S) {
                 for node in &self.ui_state.selected {
-                    self.automaton.automaton.graph.nodes_write[*node] =
-                        Some(self.ui_state.selected_state as u32)
+                    self.automaton.graph.nodes[*node].write = self.ui_state.selected_state as u32
                 }
             }
             // box select
@@ -192,15 +207,20 @@ impl App {
                     if !self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
                         self.ui_state.selected = vec![];
                     }
-                    for (i, position) in self.automaton.node_possions.iter().enumerate() {
+                    for (i, position) in self
+                        .automaton
+                        .graph
+                        .nodes
+                        .iter()
+                        .map(|a| a.position)
+                        .enumerate()
+                    {
                         if position.x >= x_1
                             && position.x <= x_2
                             && position.y >= y_1
                             && position.y <= y_2
                         {
-                            if let Some(_) = self.automaton.automaton.graph.nodes_read[i] {
-                                self.ui_state.selected.push(i)
-                            }
+                            self.ui_state.selected.push(i)
                         }
                     }
                 }
@@ -231,25 +251,30 @@ impl App {
 
             if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
                 && self.rl.is_key_pressed(KeyboardKey::KEY_C)
-            {
-                // let graph = self.automaton.automaton.graph.copy(&self.ui_state.selected);
-                let graph = Clipboard::copy(
-                    &self.automaton.automaton.graph,
-                    &self.ui_state.selected,
-                    &self.automaton.node_possions,
-                );
-                println!("{:?}", graph);
-
-                self.clipboard = Some(graph)
-            }
-            // paste
-            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-                && self.rl.is_key_pressed(KeyboardKey::KEY_V)
-            {
-                if let Some(clipboard) = self.clipboard.clone() {
-                    clipboard.paste(self);
-                }
-            }
+            {}
+            // // copy
+            //
+            // if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+            //     && self.rl.is_key_pressed(KeyboardKey::KEY_C)
+            // {
+            //     // let graph = self.automaton.automaton.graph.copy(&self.ui_state.selected);
+            //     let graph = Clipboard::copy(
+            //         &self.automaton.automaton.graph,
+            //         &self.ui_state.selected,
+            //         &self.automaton.node_possions,
+            //     );
+            //     println!("{:?}", graph);
+            //
+            //     self.clipboard = Some(graph)
+            // }
+            // // paste
+            // if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+            //     && self.rl.is_key_pressed(KeyboardKey::KEY_V)
+            // {
+            //     if let Some(clipboard) = self.clipboard.clone() {
+            //         clipboard.paste(self);
+            //     }
+            // }
         }
     }
 
@@ -273,11 +298,13 @@ impl App {
     fn render(&mut self) {
         let node_positions: Vec<Vector2> = self
             .automaton
-            .node_possions
+            .graph
+            .nodes
             .iter()
+            .map(|a| a.position)
             .map(|a| {
                 self.rl
-                    .get_world_to_screen2D(<Vec2 as Into<Vector2>>::into(*a), self.ui_state.camera)
+                    .get_world_to_screen2D(<Vec2 as Into<Vector2>>::into(a), self.ui_state.camera)
             })
             .collect();
 
@@ -316,23 +343,21 @@ impl App {
         // nodes
         for (node, position) in self
             .automaton
-            .automaton
             .graph
-            .nodes_write
+            .nodes
             .iter()
+            .map(|a| a.write)
             .zip(&node_positions)
         {
-            if let Some(node) = node {
-                d.draw_circle_v(
-                    position,
-                    30.0 * self.ui_state.camera.zoom,
-                    Color::color_from_hsv(distribute_hue(*node), 0.5, 0.90),
-                )
-            }
+            d.draw_circle_v(
+                position,
+                30.0 * self.ui_state.camera.zoom,
+                Color::color_from_hsv(distribute_hue(node), 0.5, 0.90),
+            )
         }
         // connections
-        for i in 0..self.automaton.automaton.graph.edges.len() {
-            for edge in &self.automaton.automaton.graph.edges[i] {
+        for i in 0..self.automaton.graph.nodes.len() {
+            for edge in &self.automaton.graph.nodes[i].edges {
                 draw_spring_arrow(
                     &mut d,
                     node_positions[*edge].into(),
@@ -359,7 +384,7 @@ impl App {
         );
 
         let mut strings = vec![];
-        for name in &self.automaton.automaton.rules.names {
+        for name in &self.automaton.rules.names {
             strings.push(CString::new(name.clone()).unwrap());
         }
         self.ui_state.selected_state = d.gui_list_view_ex(
@@ -376,6 +401,8 @@ impl App {
                 if let Ok(content) = fs::read_to_string(file) {
                     if let Ok(deserialized) = serde_json::from_str(&content) {
                         self.automaton = deserialized;
+                    } else {
+                        println!("unable to deserialize file")
                     }
                 } else {
                     println!("unable to read file")
@@ -402,27 +429,22 @@ impl App {
         }
 
         if d.gui_button(rrect(0, 435, 100, 30), Some(rstr!("step"))) {
-            self.automaton.automaton.step();
+            self.automaton.step();
         }
     }
 }
 
 pub struct UiState {
-    camera: Camera2D,
-
-    playing: bool,
-
-    selected_state: i32,
-    type_scroll: i32,
-
-    connecting_from: Option<usize>,
-    hovering_over: Option<usize>,
-    selected: Vec<usize>,
-
-    click_position: Vec2,
-    dragging_node_positions: Option<Vec<Vec2>>,
-
-    box_select_corner: Option<Vec2>,
+    pub camera: Camera2D,
+    pub playing: bool,
+    pub selected_state: i32,
+    pub type_scroll: i32,
+    pub connecting_from: Option<usize>,
+    pub hovering_over: Option<usize>,
+    pub selected: Vec<usize>,
+    pub click_position: Vec2,
+    pub dragging_node_positions: Option<Vec<Vec2>>,
+    pub box_select_corner: Option<Vec2>,
 }
 
 impl UiState {
@@ -455,14 +477,13 @@ impl VisualAutomaton {
             node_possions,
         }
     }
-    fn add_node(&mut self, state: u32, position: Vec2) -> usize {
-        let i = self.automaton.graph.add_node(state);
-        if self.node_possions.len() > i {
-            self.node_possions[i] = position;
-        } else {
-            self.node_possions.push(position)
-        }
-        i
+    fn add_node(&mut self, state: u32, position: Vec2) {
+        let i = self.automaton.graph.add_node(Node {
+            read: state,
+            write: state,
+            edges: vec![],
+            position,
+        });
     }
 }
 

@@ -1,12 +1,17 @@
+// mod app;
+// mod automaton;
+// mod clipboard;
 mod app;
 mod automaton;
-mod clipboard;
 mod graph;
 mod vec2;
-use automaton::*;
+use graph::Node;
+// use automaton::*;
 use raylib::prelude::{Camera2D, Vector2};
 
-use crate::app::*;
+use crate::app::App;
+use crate::automaton::{Automaton, Pattern, Rule, Ruleset};
+// use crate::app::*;
 use crate::graph::Graph;
 use crate::vec2::Vec2;
 fn main() -> Result<(), ()> {
@@ -23,7 +28,7 @@ fn main() -> Result<(), ()> {
     );
     let mut graph = Graph::new();
 
-    let mut automaton = Automaton::new(
+    let automaton = Automaton::new(
         Ruleset::new(
             vec![
                 vec![
@@ -39,23 +44,33 @@ fn main() -> Result<(), ()> {
     );
 
     let mut app = App::new(
-        VisualAutomaton::new(
-            automaton,
-            vec![
-                Vec2::new(500.0, 120.0),
-                Vec2::new(110.0, 160.0),
-                Vec2::new(0.0, 10.0),
-            ],
-        ),
+        automaton,
         Camera2D {
-            offset: Vector2::new(0.0, 0.0),
-            target: Vector2::new(0.0, 0.0),
+            offset: Vector2::zero(),
+            target: Vector2::zero(),
             rotation: 0.0,
             zoom: 1.0,
         },
     );
 
     app.run();
+
+    let mut graph = Graph::new();
+
+    graph.add_node(Node::new(0, 0, vec![], Vec2::new(0.0, 0.0)));
+    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
+    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
+    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
+    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
+
+    graph.add_edge(0, 1);
+    graph.add_edge(0, 2);
+    graph.add_edge(0, 3);
+    graph.add_edge(0, 4);
+
+    println!("{:?}", graph);
+    graph.remove_node(1);
+    println!("{:?}", graph);
 
     Ok(())
 }
