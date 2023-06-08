@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 
 use raylib::prelude::*;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(remote = "Vector2")]
 pub struct Vec2 {
     pub x: f32,
@@ -30,15 +30,15 @@ impl From<Vector2> for Vec2 {
 }
 
 impl Vec2 {
-    fn new(x: f32, y: f32) -> Vec2 {
+    pub fn new(x: f32, y: f32) -> Vec2 {
         Vec2 { x, y }
     }
 
-    fn zero() -> Vec2 {
+    pub fn zero() -> Vec2 {
         Self { x: 0.0, y: 0.0 }
     }
 
-    fn length(&self) -> f32 {
+    pub fn length(&self) -> f32 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 }

@@ -1,10 +1,8 @@
-use std::iter::{empty, Empty};
-
 use crate::graph::Graph;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Automaton {
-    rules: Ruleset,
+    pub rules: Ruleset,
     pub graph: Graph,
 }
 
@@ -113,17 +111,18 @@ impl Pattern {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Ruleset {
-    rules: Vec<Vec<Rule>>,
+    pub names: Vec<String>,
+    pub rules: Vec<Vec<Rule>>,
 }
 
 impl Ruleset {
-    pub fn new(rules: Vec<Vec<Rule>>) -> Option<Self> {
+    pub fn new(rules: Vec<Vec<Rule>>, names: Vec<String>) -> Option<Self> {
         for state in &rules {
             if !state.iter().any(|a| a.pattern == Pattern::Wildcard) {
                 return None;
             }
         }
-        Some(Ruleset { rules })
+        Some(Ruleset { rules, names })
     }
 
     pub fn apply(&self, graph: &mut Graph, idx: usize) -> Option<()> {

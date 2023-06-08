@@ -21,17 +21,18 @@ impl Graph {
             edges: edges.iter().map(|a| Vec::from(*a)).collect(),
         }
     }
-    pub fn add_node(&mut self, state: u32) {
+    pub fn add_node(&mut self, state: u32) -> usize {
         for i in 0..self.nodes_read.len() {
             if let None = self.nodes_write[i] {
                 self.nodes_write[i] = Some(state);
                 self.nodes_read[i] = Some(state);
-                return;
+                return i;
             }
         }
         self.nodes_write.push(Some(state));
         self.nodes_read.push(Some(state));
         self.edges.push(vec![]);
+        self.nodes_write.len() - 1
     }
     pub fn remove_node(&mut self, idx: usize) {
         self.nodes_write[idx] = None;
