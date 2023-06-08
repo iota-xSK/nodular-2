@@ -1,5 +1,6 @@
 mod app;
 mod automaton;
+mod clipboard;
 mod graph;
 mod vec2;
 use automaton::*;

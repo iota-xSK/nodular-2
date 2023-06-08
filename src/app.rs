@@ -1,6 +1,8 @@
 use raylib::{prelude::*, RaylibHandle, RaylibThread};
 use rfd::FileDialog;
 
+use crate::clipboard::Clipboard;
+use crate::graph::Graph;
 use crate::{automaton::Automaton, vec2::Vec2};
 use std::borrow::Borrow;
 use std::ffi::{CStr, CString};
@@ -8,10 +10,11 @@ use std::fs::{self, File};
 use std::io::Write;
 
 pub struct App {
-    automaton: VisualAutomaton,
+    pub automaton: VisualAutomaton,
     rl: RaylibHandle,
     thread: RaylibThread,
-    ui_state: UiState,
+    pub ui_state: UiState,
+    clipboard: Option<Clipboard>,
 }
 
 impl App {
@@ -31,6 +34,7 @@ impl App {
             }),
             rl,
             thread,
+            clipboard: None,
         }
     }
 
@@ -221,6 +225,29 @@ impl App {
             {
                 self.ui_state.box_select_corner = None
             }
+            // copy
+
+            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                && self.rl.is_key_pressed(KeyboardKey::KEY_C)
+            {
+                // let graph = self.automaton.automaton.graph.copy(&self.ui_state.selected);
+                let graph = Clipboard::copy(
+                    &self.automaton.automaton.graph,
+                    &self.ui_state.selected,
+                    &self.automaton.node_possions,
+                );
+                println!("{:?}", graph);
+
+                self.clipboard = Some(graph)
+            }
+            // paste
+            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                && self.rl.is_key_pressed(KeyboardKey::KEY_V)
+            {
+                if let Some(clipboard) = self.clipboard.clone() {
+                    clipboard.paste(self);
+                }
+            }
         }
     }
 
@@ -378,7 +405,7 @@ impl App {
     }
 }
 
-struct UiState {
+pub struct UiState {
     camera: Camera2D,
 
     playing: bool,
@@ -415,8 +442,8 @@ impl UiState {
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct VisualAutomaton {
-    automaton: Automaton,
-    node_possions: Vec<Vec2>,
+    pub automaton: Automaton,
+    pub node_possions: Vec<Vec2>,
 }
 
 impl VisualAutomaton {
