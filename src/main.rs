@@ -6,12 +6,10 @@ mod automaton;
 mod graph;
 mod vec2;
 use graph::Node;
-// use automaton::*;
 use raylib::prelude::{Camera2D, Vector2};
 
 use crate::app::App;
 use crate::automaton::{Automaton, Pattern, Rule, Ruleset};
-// use crate::app::*;
 use crate::graph::Graph;
 use crate::vec2::Vec2;
 fn main() -> Result<(), ()> {
@@ -43,15 +41,7 @@ fn main() -> Result<(), ()> {
         graph,
     );
 
-    let mut app = App::new(
-        automaton,
-        Camera2D {
-            offset: Vector2::zero(),
-            target: Vector2::zero(),
-            rotation: 0.0,
-            zoom: 1.0,
-        },
-    );
+    let mut app = App::new(automaton);
 
     app.run();
 

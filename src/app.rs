@@ -19,10 +19,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(automaton: Automaton, camera: Camera2D) -> Self {
+    pub fn new(automaton: Automaton) -> Self {
         let (rl, thread) = raylib::init()
             .size(400, 800)
             .resizable()
+            .msaa_4x()
             .title("nodular 2")
             .build();
         Self {
