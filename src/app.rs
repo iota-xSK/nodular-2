@@ -4,6 +4,7 @@ use rfd::FileDialog;
 use crate::graph::{Graph, Node};
 use crate::{automaton::Automaton, vec2::Vec2};
 use std::borrow::Borrow;
+use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::fs::{self, File};
 use std::io::Write;
@@ -259,27 +260,36 @@ impl App {
             }
             // // copy
             //
-            // if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-            //     && self.rl.is_key_pressed(KeyboardKey::KEY_C)
-            // {
-            //     // let graph = self.automaton.automaton.graph.copy(&self.ui_state.selected);
-            //     let graph = Clipboard::copy(
-            //         &self.automaton.automaton.graph,
-            //         &self.ui_state.selected,
-            //         &self.automaton.node_possions,
-            //     );
-            //     println!("{:?}", graph);
-            //
-            //     self.clipboard = Some(graph)
-            // }
+            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                && self.rl.is_key_pressed(KeyboardKey::KEY_C)
+            {
+                let graph = Graph::copy(&self.automaton.graph, &self.ui_state.selected);
+                self.clipboard = Some(graph);
+
+                println!("{:?}", self.clipboard);
+            }
             // // paste
-            // if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-            //     && self.rl.is_key_pressed(KeyboardKey::KEY_V)
-            // {
-            //     if let Some(clipboard) = self.clipboard.clone() {
-            //         clipboard.paste(self);
-            //     }
-            // }
+            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                && self.rl.is_key_pressed(KeyboardKey::KEY_V)
+            {
+                self.ui_state.selected = vec![];
+                let len = self.automaton.graph.nodes.len();
+                if let Some(clipboard) = self.clipboard.clone() {
+                    for node in clipboard.nodes {
+                        let new_node = Node::new(
+                            node.read,
+                            node.write,
+                            node.edges.iter().map(|a| a + len).collect(),
+                            node.position + Vec2::new(50.0, 50.0),
+                        );
+
+                        self.automaton.graph.add_node(new_node);
+                        self.ui_state
+                            .selected
+                            .push(self.automaton.graph.nodes.len() - 1)
+                    }
+                }
+            }
         }
     }
 

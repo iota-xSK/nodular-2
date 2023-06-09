@@ -29,6 +29,32 @@ impl Graph {
         Self { nodes: Vec::new() }
     }
 
+    pub fn copy(&self, selection: &[usize]) -> Self {
+        // let mut selection = Vec::from(selection);
+
+        // selection.sort();
+
+        let mut indexes = vec![None; self.nodes.len()];
+        let mut new_graph = Graph::new();
+
+        for selected in selection {
+            let mut new_node = self.nodes[*selected].clone();
+            new_node.edges = vec![];
+            new_graph.add_node(new_node);
+            indexes[*selected] = Some(new_graph.nodes.len() - 1)
+        }
+        println!("{:?}", indexes);
+        for (i, &selected) in selection.iter().enumerate() {
+            for j in &self.nodes[selected].edges {
+                if let Some(new_index) = indexes[*j] {
+                    println!("{i}");
+                    new_graph.add_edge(i, new_index);
+                }
+            }
+        }
+        new_graph
+    }
+
     // pub fn from(nodes_read: &[u32], nodes_write: &[u32], edges: &[&[usize]]) -> Self {
     //     Self {
     //         nodes_write: nodes_write.iter().map(|a| Some(*a)).collect(),
