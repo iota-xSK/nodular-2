@@ -54,8 +54,8 @@ impl App {
     }
 
     fn step(&mut self) {
-        self.automaton.step();
         self.play_midi();
+        self.automaton.step();
     }
 
     pub fn run(&mut self) {
@@ -558,13 +558,11 @@ impl App {
         if let Some(output) = &mut self.connection {
             for node in &self.automaton.graph.nodes {
                 if let Some(note) = &node.note {
-                    println!("here");
-                    if node.write == 1 && node.read == 0 {
+                    if node.read == 1 && node.write == 0 {
                         if let Err(err) = output.send(&note.to_midi_on()) {
                             println!("{:?}", err)
                         }
-                    }
-                    if node.write == 0 && node.read == 1 {
+                    } else if node.read == 0 && node.write == 1 {
                         if let Err(err) = output.send(&note.to_midi_off()) {
                             println!("{:?}", err)
                         }
@@ -763,7 +761,7 @@ impl Note {
             channel: midi_msg::Channel::Ch1,
             msg: midi_msg::ChannelVoiceMsg::NoteOff {
                 note: self.to_midi_number(),
-                velocity: 60,
+                velocity: 0,
             },
         }
         .to_midi()
