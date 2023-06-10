@@ -6,6 +6,7 @@ mod automaton;
 mod graph;
 mod vec2;
 use graph::Node;
+use midir::MidiOutput;
 use raylib::prelude::{Camera2D, Vector2};
 
 use crate::app::App;
@@ -24,7 +25,7 @@ fn main() -> Result<(), ()> {
             number: 2,
         }),
     );
-    let mut graph = Graph::new();
+    let graph = Graph::new();
 
     let automaton = Automaton::new(
         Ruleset::new(
@@ -44,22 +45,6 @@ fn main() -> Result<(), ()> {
     let mut app = App::new(automaton);
 
     app.run();
-
-    let mut graph = Graph::new();
-
-    graph.add_node(Node::new(0, 0, vec![], Vec2::new(0.0, 0.0)));
-    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
-    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
-    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
-    graph.add_node(Node::new(1, 0, vec![], Vec2::new(0.0, 0.0)));
-
-    graph.add_edge(0, 1);
-    graph.add_edge(0, 2);
-    graph.add_edge(0, 3);
-    graph.add_edge(0, 4);
-
-    println!("{:?}", graph);
-    println!("{:?}", graph);
 
     Ok(())
 }

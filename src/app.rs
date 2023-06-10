@@ -1,13 +1,20 @@
+use midi_msg::MidiMsg;
 use raylib::{prelude::*, RaylibHandle, RaylibThread};
 use rfd::FileDialog;
 
 use crate::graph::{Graph, Node};
 use crate::{automaton::Automaton, vec2::Vec2};
+use midir::*;
 use std::borrow::Borrow;
-use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
+use std::fmt::{Debug, Display};
 use std::fs::{self, File};
 use std::io::Write;
+
+enum Scene {
+    Normal,
+    MidiSelect,
+}
 
 pub struct App {
     pub automaton: Automaton,
@@ -16,6 +23,9 @@ pub struct App {
     pub ui_state: UiState,
     // clipboard: Option<Clipboard>,
     clipboard: Option<Graph>,
+    connection: Option<MidiOutputConnection>,
+    scene: Scene,
+    should_step: bool,
 }
 
 impl App {
@@ -37,180 +47,36 @@ impl App {
             rl,
             thread,
             clipboard: None,
+            scene: Scene::Normal,
+            connection: None,
+            should_step: false,
         }
     }
 
+    fn step(&mut self) {
+        self.automaton.step();
+        self.play_midi();
+    }
+
     pub fn run(&mut self) {
+        self.rl.set_target_fps(60);
         while !self.rl.window_should_close() {
-            if (self.rl.get_time() % 0.5) < self.rl.get_frame_time() as f64 && self.ui_state.playing
-            {
-                self.automaton.step();
-            }
-
-            // pause unpuase
-            if self.rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-                self.ui_state.playing = !self.ui_state.playing;
-            }
-            // find coliding node
-            self.ui_state.hovering_over = None;
-            for (i, position) in self
-                .automaton
-                .graph
-                .nodes
-                .iter()
-                .map(|a| a.position)
-                .enumerate()
-            {
-                if check_collision_point_circle(
-                    self.rl
-                        .get_screen_to_world2D(self.rl.get_mouse_position(), self.ui_state.camera),
-                    <Vec2 as Into<Vector2>>::into(position),
-                    30.0 * self.ui_state.camera.zoom,
-                ) {
-                    self.ui_state.hovering_over = Some(i)
-                }
-            }
-
-            // add node
-            if self.rl.is_key_pressed(KeyboardKey::KEY_A) {
-                self.automaton.graph.add_node(Node::new(
-                    self.ui_state.selected_state as u32,
-                    self.ui_state.selected_state as u32,
-                    vec![],
-                    self.rl
-                        .get_screen_to_world2D(self.rl.get_mouse_position(), self.ui_state.camera)
-                        .into(),
-                ));
-            }
-
-            // connect nodes
-            if self
-                .rl
-                .is_mouse_button_pressed(MouseButton::MOUSE_RIGHT_BUTTON)
-            {
-                self.ui_state.connecting_from = self.ui_state.hovering_over;
-            }
-            if self
-                .rl
-                .is_mouse_button_released(MouseButton::MOUSE_RIGHT_BUTTON)
-            {
-                if let (Some(hovering), Some(from)) =
-                    (self.ui_state.hovering_over, self.ui_state.connecting_from)
-                {
-                    if from != hovering {
-                        if self.automaton.graph.nodes[hovering].edges.contains(&from) {
-                            self.automaton.graph.remove_edge(hovering, from);
-                        } else {
-                            self.automaton.graph.add_edge(hovering, from);
-                        }
+            match self.scene {
+                Scene::Normal => {
+                    if (self.rl.get_time() % 0.5) < self.rl.get_frame_time() as f64
+                        && self.ui_state.playing
+                    {
+                        self.step();
+                    } else if self.should_step {
+                        self.step()
                     }
-                }
-                self.ui_state.connecting_from = None;
-            }
-            self.control_camera();
-            self.render();
 
-            // selecting nodes
-
-            if self
-                .rl
-                .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
-            {
-                if let Some(hovering) = self.ui_state.hovering_over {
-                    if self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
-                        if !self.ui_state.selected.contains(&hovering) {
-                            self.ui_state.selected.push(hovering)
-                        }
-                    } else {
-                        self.ui_state.selected = vec![hovering]
+                    // pause unpuase
+                    if self.rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+                        self.ui_state.playing = !self.ui_state.playing;
                     }
-                } else {
-                    self.ui_state.selected = vec![];
-                }
-            }
-
-            // moving nodes
-            if self
-                .rl
-                .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
-            {
-                self.ui_state.dragging_node_positions = None;
-            }
-
-            if self
-                .rl
-                .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
-            {
-                self.ui_state.click_position = self.rl.get_mouse_position().into();
-                self.ui_state.dragging_node_positions = Some(
-                    self.automaton
-                        .graph
-                        .nodes
-                        .iter()
-                        .map(|a| a.position)
-                        .collect(),
-                );
-            }
-            if self.rl.is_mouse_button_down(MouseButton::MOUSE_LEFT_BUTTON) {
-                for selected in &self.ui_state.selected {
-                    if let Some(dragging) = self.ui_state.dragging_node_positions.clone() {
-                        self.automaton.graph.nodes[*selected].position = dragging[*selected]
-                            + self
-                                .rl
-                                .get_screen_to_world2D(
-                                    self.rl.get_mouse_position(),
-                                    self.ui_state.camera,
-                                )
-                                .into()
-                            - self
-                                .rl
-                                .get_screen_to_world2D(
-                                    <Vec2 as Into<Vector2>>::into(self.ui_state.click_position),
-                                    self.ui_state.camera,
-                                )
-                                .into()
-                    } else {
-                        println!("error")
-                    }
-                }
-            }
-            // deleting nodes
-            if self.rl.is_key_pressed(KeyboardKey::KEY_DELETE) {
-                while let Some(node) = self.ui_state.selected.pop() {
-                    self.automaton
-                        .graph
-                        .remove_node_from_app(node, &mut self.ui_state);
-                }
-                self.ui_state.selected = vec![];
-            }
-            // changing state
-            if self.rl.is_key_pressed(KeyboardKey::KEY_S) {
-                for node in &self.ui_state.selected {
-                    self.automaton.graph.nodes[*node].write = self.ui_state.selected_state as u32
-                }
-            }
-            // box select
-            if self
-                .rl
-                .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
-            {
-                if let Some(box_drag_start) = self.ui_state.box_select_corner {
-                    let rect = find_rect(
-                        box_drag_start.into(),
-                        self.rl.get_screen_to_world2D(
-                            self.rl.get_mouse_position(),
-                            self.ui_state.camera,
-                        ),
-                    );
-
-                    let x_1 = rect.x;
-                    let y_1 = rect.y;
-                    let x_2 = rect.width + rect.x;
-                    let y_2 = rect.height + rect.y;
-
-                    if !self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
-                        self.ui_state.selected = vec![];
-                    }
+                    // find coliding node
+                    self.ui_state.hovering_over = None;
                     for (i, position) in self
                         .automaton
                         .graph
@@ -219,78 +85,294 @@ impl App {
                         .map(|a| a.position)
                         .enumerate()
                     {
-                        if position.x >= x_1
-                            && position.x <= x_2
-                            && position.y >= y_1
-                            && position.y <= y_2
+                        if check_collision_point_circle(
+                            self.rl.get_screen_to_world2D(
+                                self.rl.get_mouse_position(),
+                                self.ui_state.camera,
+                            ),
+                            <Vec2 as Into<Vector2>>::into(position),
+                            30.0 * self.ui_state.camera.zoom,
+                        ) {
+                            self.ui_state.hovering_over = Some(i)
+                        }
+                    }
+
+                    // add node
+                    if self.rl.is_key_pressed(KeyboardKey::KEY_A) {
+                        self.automaton.graph.add_node(Node::new(
+                            self.ui_state.selected_state as u32,
+                            self.ui_state.selected_state as u32,
+                            vec![],
+                            self.rl
+                                .get_screen_to_world2D(
+                                    self.rl.get_mouse_position(),
+                                    self.ui_state.camera,
+                                )
+                                .into(),
+                        ));
+                    }
+
+                    // connect nodes
+                    if self
+                        .rl
+                        .is_mouse_button_pressed(MouseButton::MOUSE_RIGHT_BUTTON)
+                    {
+                        self.ui_state.connecting_from = self.ui_state.hovering_over;
+                    }
+                    if self
+                        .rl
+                        .is_mouse_button_released(MouseButton::MOUSE_RIGHT_BUTTON)
+                    {
+                        if let (Some(hovering), Some(from)) =
+                            (self.ui_state.hovering_over, self.ui_state.connecting_from)
                         {
-                            self.ui_state.selected.push(i)
+                            if from != hovering {
+                                if self.automaton.graph.nodes[hovering].edges.contains(&from) {
+                                    self.automaton.graph.remove_edge(hovering, from);
+                                } else {
+                                    self.automaton.graph.add_edge(hovering, from);
+                                }
+                            }
+                        }
+                        self.ui_state.connecting_from = None;
+                    }
+                    self.control_camera();
+                    self.render();
+
+                    // selecting nodes
+
+                    if self.rl.get_mouse_x() > 100 {
+                        if self
+                            .rl
+                            .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                        {
+                            if let Some(hovering) = self.ui_state.hovering_over {
+                                if self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+                                    if !self.ui_state.selected.contains(&hovering) {
+                                        self.ui_state.selected.push(hovering)
+                                    }
+                                } else {
+                                    self.ui_state.selected = vec![hovering]
+                                }
+                            } else {
+                            }
+                        }
+                    }
+
+                    // moving nodes
+                    if self
+                        .rl
+                        .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+                    {
+                        self.ui_state.dragging_node_positions = None;
+                    }
+
+                    if self
+                        .rl
+                        .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                    {
+                        self.ui_state.click_position = self.rl.get_mouse_position().into();
+                        self.ui_state.dragging_node_positions = Some(
+                            self.automaton
+                                .graph
+                                .nodes
+                                .iter()
+                                .map(|a| a.position)
+                                .collect(),
+                        );
+                    }
+                    if self.rl.is_mouse_button_down(MouseButton::MOUSE_LEFT_BUTTON) {
+                        for selected in &self.ui_state.selected {
+                            if let Some(dragging) = self.ui_state.dragging_node_positions.clone() {
+                                self.automaton.graph.nodes[*selected].position = dragging[*selected]
+                                    + self
+                                        .rl
+                                        .get_screen_to_world2D(
+                                            self.rl.get_mouse_position(),
+                                            self.ui_state.camera,
+                                        )
+                                        .into()
+                                    - self
+                                        .rl
+                                        .get_screen_to_world2D(
+                                            <Vec2 as Into<Vector2>>::into(
+                                                self.ui_state.click_position,
+                                            ),
+                                            self.ui_state.camera,
+                                        )
+                                        .into()
+                            } else {
+                                println!("error")
+                            }
+                        }
+                    }
+                    // deleting nodes
+                    if self.rl.is_key_pressed(KeyboardKey::KEY_DELETE) {
+                        while let Some(node) = self.ui_state.selected.pop() {
+                            self.automaton
+                                .graph
+                                .remove_node_from_app(node, &mut self.ui_state);
+                        }
+                        self.ui_state.selected = vec![];
+                    }
+                    // changing state
+                    if self.rl.is_key_pressed(KeyboardKey::KEY_S) {
+                        for node in &self.ui_state.selected {
+                            self.automaton.graph.nodes[*node].write =
+                                self.ui_state.selected_state as u32
+                        }
+                    }
+                    // box select
+                    if self.rl.get_mouse_x() > 100 {
+                        if self
+                            .rl
+                            .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+                        {
+                            if let Some(box_drag_start) = self.ui_state.box_select_corner {
+                                let rect = find_rect(
+                                    box_drag_start.into(),
+                                    self.rl.get_screen_to_world2D(
+                                        self.rl.get_mouse_position(),
+                                        self.ui_state.camera,
+                                    ),
+                                );
+
+                                let x_1 = rect.x;
+                                let y_1 = rect.y;
+                                let x_2 = rect.width + rect.x;
+                                let y_2 = rect.height + rect.y;
+
+                                if !self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+                                    self.ui_state.selected = vec![];
+                                }
+                                for (i, position) in self
+                                    .automaton
+                                    .graph
+                                    .nodes
+                                    .iter()
+                                    .map(|a| a.position)
+                                    .enumerate()
+                                {
+                                    if position.x >= x_1
+                                        && position.x <= x_2
+                                        && position.y >= y_1
+                                        && position.y <= y_2
+                                    {
+                                        self.ui_state.selected.push(i)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let None = self.ui_state.hovering_over {
+                        if self
+                            .rl
+                            .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                        {
+                            self.ui_state.box_select_corner = Some(
+                                self.rl
+                                    .get_screen_to_world2D(
+                                        self.rl.get_mouse_position(),
+                                        self.ui_state.camera,
+                                    )
+                                    .into(),
+                            );
+                        }
+                    }
+                    if self
+                        .rl
+                        .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+                    {
+                        self.ui_state.box_select_corner = None
+                    }
+
+                    if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) {
+                        if let Some(number) = self.rl.get_key_pressed_number() {
+                            if (number as i32) - 48 <= self.automaton.rules.names.len() as i32
+                                && (number as i32 - 48) >= 0
+                            {
+                                self.ui_state.selected_state = (number as i32) - 49
+                            }
+                        }
+                    }
+                    // copy
+                    //
+                    if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                        && self.rl.is_key_pressed(KeyboardKey::KEY_C)
+                    {
+                        let graph = Graph::copy(&self.automaton.graph, &self.ui_state.selected);
+                        self.clipboard = Some(graph);
+
+                        println!("{:?}", self.clipboard);
+                    }
+                    // // paste
+                    if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+                        && self.rl.is_key_pressed(KeyboardKey::KEY_V)
+                    {
+                        self.ui_state.selected = vec![];
+                        let len = self.automaton.graph.nodes.len();
+                        if let Some(clipboard) = self.clipboard.clone() {
+                            for node in clipboard.nodes {
+                                let new_node = Node::new(
+                                    node.read,
+                                    node.write,
+                                    node.edges.iter().map(|a| a + len).collect(),
+                                    node.position + Vec2::new(50.0, 50.0),
+                                );
+
+                                self.automaton.graph.add_node(new_node);
+                                self.ui_state
+                                    .selected
+                                    .push(self.automaton.graph.nodes.len() - 1)
+                            }
+                        }
+                    }
+                }
+                Scene::MidiSelect => {
+                    self.midi_select();
+                }
+            }
+        }
+    }
+
+    fn midi_select(&mut self) {
+        let mut d = self.rl.begin_drawing(&self.thread);
+        d.clear_background(Color::RAYWHITE);
+        if d.gui_button(rrect(0, 0, 100, 30), Some(rstr!("back to app"))) {
+            self.scene = Scene::Normal;
+        }
+        match midir::MidiOutput::new("nodular-2") {
+            Ok(some) => {
+                let ports = &some.ports();
+
+                for (i, port) in ports.iter().enumerate() {
+                    if let Ok(name) = some.port_name(port) {
+                        if d.gui_button(
+                            rrect(
+                                d.get_screen_width() / 2 - 300,
+                                (200 + i * 30) as f32,
+                                300,
+                                30,
+                            ),
+                            Some(&CString::new(name).unwrap()),
+                        ) {
+                            let possible_connection = some.connect(&ports[i], "nodular-2");
+                            if let Ok(connection) = possible_connection {
+                                self.connection = Some(connection)
+                            }
+                            break;
                         }
                     }
                 }
             }
-
-            if let None = self.ui_state.hovering_over {
-                if self
-                    .rl
-                    .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
-                {
-                    self.ui_state.box_select_corner = Some(
-                        self.rl
-                            .get_screen_to_world2D(
-                                self.rl.get_mouse_position(),
-                                self.ui_state.camera,
-                            )
-                            .into(),
-                    );
-                }
-            }
-            if self
-                .rl
-                .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
-            {
-                self.ui_state.box_select_corner = None
-            }
-
-            if let Some(number) = self.rl.get_key_pressed_number() {
-                if (number as i32) - 48 <= self.automaton.rules.names.len() as i32
-                    && (number as i32 - 48) >= 0
-                {
-                    self.ui_state.selected_state = (number as i32) - 49
-                }
-            }
-            // // copy
-            //
-            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-                && self.rl.is_key_pressed(KeyboardKey::KEY_C)
-            {
-                let graph = Graph::copy(&self.automaton.graph, &self.ui_state.selected);
-                self.clipboard = Some(graph);
-
-                println!("{:?}", self.clipboard);
-            }
-            // // paste
-            if self.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-                && self.rl.is_key_pressed(KeyboardKey::KEY_V)
-            {
-                self.ui_state.selected = vec![];
-                let len = self.automaton.graph.nodes.len();
-                if let Some(clipboard) = self.clipboard.clone() {
-                    for node in clipboard.nodes {
-                        let new_node = Node::new(
-                            node.read,
-                            node.write,
-                            node.edges.iter().map(|a| a + len).collect(),
-                            node.position + Vec2::new(50.0, 50.0),
-                        );
-
-                        self.automaton.graph.add_node(new_node);
-                        self.ui_state
-                            .selected
-                            .push(self.automaton.graph.nodes.len() - 1)
-                    }
-                }
-            }
+            Err(_) => d.draw_text(
+                "Midi initialisation error",
+                d.get_screen_width() / 2,
+                d.get_screen_height() / 2,
+                30,
+                Color::BLACK,
+            ),
         }
     }
 
@@ -392,6 +474,7 @@ impl App {
         // render gui
 
         d.gui_panel(rrect(0, 0, 100, height));
+        d.gui_panel(rrect(0, 0, _width, 30));
 
         self.ui_state.playing = d.gui_check_box(
             rrect(10, 10, 10, 10),
@@ -403,8 +486,13 @@ impl App {
         for name in &self.automaton.rules.names {
             strings.push(CString::new(name.clone()).unwrap());
         }
+        if d.gui_button(rrect(0, 30, 100, 30), Some(rstr!("step"))) {
+            self.should_step = true;
+        } else {
+            self.should_step = false;
+        }
         self.ui_state.selected_state = d.gui_list_view_ex(
-            rrect(0, 25, 100, 300.min(height - 60)),
+            rrect(0, 60, 100, 300.min(height - 60)),
             &strings.iter().map(|a| a.borrow()).collect::<Vec<&CStr>>(),
             &mut 1,
             &mut self.ui_state.type_scroll,
@@ -412,7 +500,7 @@ impl App {
             self.ui_state.selected_state,
         );
 
-        if d.gui_button(rrect(0, 365, 100, 30), Some(rstr!("open world"))) {
+        if d.gui_button(rrect(100, 0, 100, 30), Some(rstr!("open world"))) {
             if let Some(file) = FileDialog::new().pick_file() {
                 if let Ok(content) = fs::read_to_string(file) {
                     if let Ok(deserialized) = serde_json::from_str(&content) {
@@ -427,7 +515,7 @@ impl App {
                 println!("unable to pick file")
             }
         }
-        if d.gui_button(rrect(0, 400, 100, 30), Some(rstr!("save_world"))) {
+        if d.gui_button(rrect(200, 0, 100, 30), Some(rstr!("save_world"))) {
             if let Some(file_choice) = FileDialog::new().save_file() {
                 if let Ok(mut file) = File::create(file_choice) {
                     if let Ok(parsed) = serde_json::to_string_pretty(&self.automaton) {
@@ -444,8 +532,45 @@ impl App {
             }
         }
 
-        if d.gui_button(rrect(0, 435, 100, 30), Some(rstr!("step"))) {
-            self.automaton.step();
+        if d.gui_button(rrect(300, 0, 100, 30), Some(rstr!("Midi settings"))) {
+            self.scene = Scene::MidiSelect;
+        }
+
+        note_input_box(
+            &mut d,
+            rrect(0, 360, 40, 30),
+            &mut self.ui_state.note,
+            &mut self.ui_state.node_edit_mode,
+        );
+
+        if d.gui_button(rrect(40, 360, 60, 30), Some(rstr!("note"))) {
+            for selected in &self.ui_state.selected {
+                self.automaton.graph.nodes[*selected].note = Some(self.ui_state.note.clone())
+            }
+        }
+        if d.gui_button(rrect(0, 390, 100, 30), Some(rstr!("clear note"))) {
+            for selected in &self.ui_state.selected {
+                self.automaton.graph.nodes[*selected].note = None;
+            }
+        }
+    }
+    pub fn play_midi(&mut self) {
+        if let Some(output) = &mut self.connection {
+            for node in &self.automaton.graph.nodes {
+                if let Some(note) = &node.note {
+                    println!("here");
+                    if node.write == 1 && node.read == 0 {
+                        if let Err(err) = output.send(&note.to_midi_on()) {
+                            println!("{:?}", err)
+                        }
+                    }
+                    if node.write == 0 && node.read == 1 {
+                        if let Err(err) = output.send(&note.to_midi_off()) {
+                            println!("{:?}", err)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -461,6 +586,9 @@ pub struct UiState {
     pub click_position: Vec2,
     pub dragging_node_positions: Option<Vec<Vec2>>,
     pub box_select_corner: Option<Vec2>,
+    pub selected_midi_value: i32,
+    pub node_edit_mode: bool,
+    pub note: Note,
 }
 
 impl UiState {
@@ -476,30 +604,14 @@ impl UiState {
             click_position: Vec2::new(0.0, 0.0),
             dragging_node_positions: None,
             box_select_corner: None,
+            selected_midi_value: 0,
+            node_edit_mode: false,
+            note: Note {
+                letter: NoteLetter::C,
+                accidental: Accidental::Neutral,
+                octave: 4,
+            },
         }
-    }
-}
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct VisualAutomaton {
-    pub automaton: Automaton,
-    pub node_possions: Vec<Vec2>,
-}
-
-impl VisualAutomaton {
-    pub fn new(automaton: Automaton, node_possions: Vec<Vec2>) -> Self {
-        Self {
-            automaton,
-            node_possions,
-        }
-    }
-    fn add_node(&mut self, state: u32, position: Vec2) {
-        let i = self.automaton.graph.add_node(Node {
-            read: state,
-            write: state,
-            edges: vec![],
-            position,
-        });
     }
 }
 
@@ -562,5 +674,194 @@ fn find_rect(corner_1: Vector2, corner_2: Vector2) -> Rectangle {
         corner_1.y.min(corner_2.y),
         (corner_2.x - corner_1.x).abs(),
         (corner_2.y - corner_1.y).abs(),
+    )
+}
+
+#[derive(Clone, Debug, Copy, serde::Serialize, serde::Deserialize)]
+enum NoteLetter {
+    C = 0,
+    D = 2,
+    E = 4,
+    F = 5,
+    G = 7,
+    A = 9,
+    B = 11,
+}
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+enum Accidental {
+    Flat = -1,
+    Neutral = 0,
+    Sharp = 1,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Note {
+    letter: NoteLetter,
+    accidental: Accidental,
+    octave: u8,
+}
+
+impl Display for Note {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let note = match self.letter {
+            NoteLetter::C => 'C',
+            NoteLetter::D => 'D',
+            NoteLetter::E => 'E',
+            NoteLetter::F => 'F',
+            NoteLetter::G => 'G',
+            NoteLetter::A => 'A',
+            NoteLetter::B => 'B',
+        };
+        write!(f, "{}", note)?;
+        match self.accidental {
+            Accidental::Flat => write!(f, "b")?,
+            Accidental::Neutral => (),
+            Accidental::Sharp => write!(f, "#")?,
+        };
+        write!(f, "{}", self.octave)?;
+        Ok(())
+    }
+}
+impl Debug for Note {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let note = match self.letter {
+            NoteLetter::C => 'C',
+            NoteLetter::D => 'D',
+            NoteLetter::E => 'E',
+            NoteLetter::F => 'F',
+            NoteLetter::G => 'G',
+            NoteLetter::A => 'A',
+            NoteLetter::B => 'B',
+        };
+        write!(f, "{}", note)?;
+        match self.accidental {
+            Accidental::Flat => write!(f, "b")?,
+            Accidental::Neutral => (),
+            Accidental::Sharp => write!(f, "#")?,
+        };
+        write!(f, "{}", self.octave)?;
+        Ok(())
+    }
+}
+
+impl Note {
+    fn to_midi_number(&self) -> u8 {
+        24 + self.letter as u8 + self.octave * 12
+    }
+    fn to_midi_on(&self) -> Vec<u8> {
+        MidiMsg::ChannelVoice {
+            channel: midi_msg::Channel::Ch1,
+            msg: midi_msg::ChannelVoiceMsg::NoteOn {
+                note: self.to_midi_number(),
+                velocity: 60,
+            },
+        }
+        .to_midi()
+    }
+    fn to_midi_off(&self) -> Vec<u8> {
+        MidiMsg::ChannelVoice {
+            channel: midi_msg::Channel::Ch1,
+            msg: midi_msg::ChannelVoiceMsg::NoteOff {
+                note: self.to_midi_number(),
+                velocity: 60,
+            },
+        }
+        .to_midi()
+    }
+}
+
+fn note_input_box(
+    d: &mut RaylibDrawHandle,
+    rect: impl Into<Rectangle>,
+    note: &mut Note,
+    edit_mode: &mut bool,
+) {
+    let rect = rect.into();
+    let mouse = d.get_mouse_position();
+    let hovering = mouse.x > rect.x
+        && mouse.y > rect.y
+        && mouse.x < rect.x + rect.width
+        && mouse.y < rect.y + rect.height;
+    if d.is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON) {
+        if hovering {
+            *edit_mode = true
+        } else {
+            *edit_mode = false
+        }
+    }
+    d.draw_rectangle_rec(
+        rect,
+        if *edit_mode {
+            Color::from_hex("97e8ff").unwrap()
+        } else if !hovering {
+            Color::LIGHTGRAY
+        } else {
+            Color::from_hex("c9effe").unwrap()
+        },
+    );
+    let line_color = if *edit_mode {
+        Color::from_hex("0492c7").unwrap()
+    } else if !hovering {
+        Color::GRAY
+    } else {
+        Color::SKYBLUE
+    };
+    d.draw_rectangle_lines_ex(rect, 2, line_color);
+
+    if *edit_mode {
+        if d.is_key_pressed(KeyboardKey::KEY_C) {
+            note.letter = NoteLetter::C
+        } else if d.is_key_pressed(KeyboardKey::KEY_D) {
+            note.letter = NoteLetter::D
+        } else if d.is_key_pressed(KeyboardKey::KEY_E) {
+            note.letter = NoteLetter::E
+        } else if d.is_key_pressed(KeyboardKey::KEY_F) {
+            note.letter = NoteLetter::F
+        } else if d.is_key_pressed(KeyboardKey::KEY_G) {
+            note.letter = NoteLetter::G
+        } else if d.is_key_pressed(KeyboardKey::KEY_A) {
+            note.letter = NoteLetter::A
+        } else if d.is_key_pressed(KeyboardKey::KEY_B) {
+            note.letter = NoteLetter::B
+        }
+
+        if d.is_key_pressed(KeyboardKey::KEY_UP) {
+            note.accidental = Accidental::Sharp
+        } else if d.is_key_pressed(KeyboardKey::KEY_DOWN) {
+            note.accidental = Accidental::Flat
+        } else if d.is_key_pressed(KeyboardKey::KEY_PERIOD) {
+            note.accidental = Accidental::Neutral
+        }
+
+        if d.is_key_pressed(KeyboardKey::KEY_ZERO) {
+            note.octave = 0;
+        } else if d.is_key_pressed(KeyboardKey::KEY_ONE) {
+            note.octave = 1;
+        } else if d.is_key_pressed(KeyboardKey::KEY_TWO) {
+            note.octave = 2;
+        } else if d.is_key_pressed(KeyboardKey::KEY_THREE) {
+            note.octave = 3;
+        } else if d.is_key_pressed(KeyboardKey::KEY_FOUR) {
+            note.octave = 4;
+        } else if d.is_key_pressed(KeyboardKey::KEY_FIVE) {
+            note.octave = 5;
+        } else if d.is_key_pressed(KeyboardKey::KEY_SIX) {
+            note.octave = 6;
+        } else if d.is_key_pressed(KeyboardKey::KEY_SEVEN) {
+            note.octave = 7;
+        } else if d.is_key_pressed(KeyboardKey::KEY_EIGHT) {
+            note.octave = 8;
+        } else if d.is_key_pressed(KeyboardKey::KEY_NINE) {
+            note.octave = 9;
+        }
+    }
+
+    let text = format!("{}", *note);
+    d.draw_text(
+        &text,
+        (rect.x + rect.width / 2.0) as i32 - text.len() as i32 * 4,
+        (rect.y + rect.height / 2.0) as i32 - 7,
+        15,
+        line_color,
     )
 }

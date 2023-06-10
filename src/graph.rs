@@ -1,4 +1,7 @@
-use crate::{app::UiState, vec2::Vec2};
+use crate::{
+    app::{Note, UiState},
+    vec2::Vec2,
+};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Node {
@@ -6,6 +9,7 @@ pub struct Node {
     pub write: u32,
     pub edges: Vec<usize>,
     pub position: Vec2,
+    pub note: Option<Note>,
 }
 
 impl Node {
@@ -15,6 +19,7 @@ impl Node {
             write,
             edges,
             position,
+            note: None,
         }
     }
 }

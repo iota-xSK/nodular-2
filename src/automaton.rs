@@ -1,4 +1,7 @@
-use crate::graph::{Graph, Node};
+use crate::{
+    app::App,
+    graph::{Graph, Node},
+};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Automaton {
