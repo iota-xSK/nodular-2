@@ -25,16 +25,26 @@ fn main() -> Result<(), ()> {
             number: 2,
         }),
     );
+    let turn_off = Pattern::Or(
+        Box::new(Pattern::Equal {
+            state: 0,
+            number: 2,
+        }),
+        Box::new(Pattern::Equal {
+            state: 0,
+            number: 3,
+        }),
+    );
     let graph = Graph::new();
 
     let automaton = Automaton::new(
         Ruleset::new(
             vec![
                 vec![
-                    Rule::new(turn_on.clone(), 0),
+                    Rule::new(turn_on, 1),
                     Rule::new(wildcard.clone(), 1),
                 ],
-                vec![Rule::new(turn_on.clone(), 0), Rule::new(wildcard, 1)],
+                vec![Rule::new(turn_off, 0), Rule::new(wildcard, 1)],
             ],
             vec!["electron".to_string(), "wire".to_string()],
         )

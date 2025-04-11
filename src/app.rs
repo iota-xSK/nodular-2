@@ -21,7 +21,6 @@ pub struct App {
     rl: RaylibHandle,
     thread: RaylibThread,
     pub ui_state: UiState,
-    // clipboard: Option<Clipboard>,
     clipboard: Option<Graph>,
     connection: Option<MidiOutputConnection>,
     scene: Scene,
@@ -98,6 +97,7 @@ impl App {
                     }
 
                     // add node
+                    println!("{:?}", self.ui_state.selected_state);
                     if self.rl.is_key_pressed(KeyboardKey::KEY_A) {
                         self.automaton.graph.add_node(Node::new(
                             self.ui_state.selected_state as u32,
@@ -115,13 +115,13 @@ impl App {
                     // connect nodes
                     if self
                         .rl
-                        .is_mouse_button_pressed(MouseButton::MOUSE_RIGHT_BUTTON)
+                        .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT)
                     {
                         self.ui_state.connecting_from = self.ui_state.hovering_over;
                     }
                     if self
                         .rl
-                        .is_mouse_button_released(MouseButton::MOUSE_RIGHT_BUTTON)
+                        .is_mouse_button_released(MouseButton::MOUSE_BUTTON_RIGHT)
                     {
                         if let (Some(hovering), Some(from)) =
                             (self.ui_state.hovering_over, self.ui_state.connecting_from)
@@ -144,7 +144,7 @@ impl App {
                     if self.rl.get_mouse_x() > 100 {
                         if self
                             .rl
-                            .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                            .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
                         {
                             if let Some(hovering) = self.ui_state.hovering_over {
                                 if self.rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
@@ -162,14 +162,14 @@ impl App {
                     // moving nodes
                     if self
                         .rl
-                        .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+                        .is_mouse_button_released(MouseButton::MOUSE_BUTTON_LEFT)
                     {
                         self.ui_state.dragging_node_positions = None;
                     }
 
                     if self
                         .rl
-                        .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                        .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
                     {
                         self.ui_state.click_position = self.rl.get_mouse_position().into();
                         self.ui_state.dragging_node_positions = Some(
@@ -181,7 +181,7 @@ impl App {
                                 .collect(),
                         );
                     }
-                    if self.rl.is_mouse_button_down(MouseButton::MOUSE_LEFT_BUTTON) {
+                    if self.rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
                         for selected in &self.ui_state.selected {
                             if let Some(dragging) = self.ui_state.dragging_node_positions.clone() {
                                 self.automaton.graph.nodes[*selected].position = dragging[*selected]
@@ -226,7 +226,7 @@ impl App {
                     if self.rl.get_mouse_x() > 100 {
                         if self
                             .rl
-                            .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+                            .is_mouse_button_released(MouseButton::MOUSE_BUTTON_LEFT)
                         {
                             if let Some(box_drag_start) = self.ui_state.box_select_corner {
                                 let rect = find_rect(
@@ -268,7 +268,7 @@ impl App {
                     if let None = self.ui_state.hovering_over {
                         if self
                             .rl
-                            .is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON)
+                            .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
                         {
                             self.ui_state.box_select_corner = Some(
                                 self.rl
@@ -282,7 +282,7 @@ impl App {
                     }
                     if self
                         .rl
-                        .is_mouse_button_released(MouseButton::MOUSE_LEFT_BUTTON)
+                        .is_mouse_button_released(MouseButton::MOUSE_BUTTON_LEFT)
                     {
                         self.ui_state.box_select_corner = None
                     }
@@ -339,7 +339,7 @@ impl App {
     fn midi_select(&mut self) {
         let mut d = self.rl.begin_drawing(&self.thread);
         d.clear_background(Color::RAYWHITE);
-        if d.gui_button(rrect(0, 0, 100, 30), Some(rstr!("back to app"))) {
+        if d.gui_button(rrect(0, 0, 100, 30), "back to app") {
             self.scene = Scene::Normal;
         }
         match midir::MidiOutput::new("nodular-2") {
@@ -355,7 +355,7 @@ impl App {
                                 300,
                                 30,
                             ),
-                            Some(&CString::new(name).unwrap()),
+                            &name,
                         ) {
                             let possible_connection = some.connect(&ports[i], "nodular-2");
                             if let Ok(connection) = possible_connection {
@@ -473,34 +473,33 @@ impl App {
 
         // render gui
 
-        d.gui_panel(rrect(0, 0, 100, height));
-        d.gui_panel(rrect(0, 0, _width, 30));
+        d.gui_panel(rrect(0, 0, 100, height), "");
+        d.gui_panel(rrect(0, 0, _width, 30), "");
 
-        self.ui_state.playing = d.gui_check_box(
+        d.gui_check_box(
             rrect(10, 10, 10, 10),
-            Some(rstr!("playing")),
-            self.ui_state.playing,
+            "playing",
+            &mut self.ui_state.playing,
         );
 
         let mut strings = vec![];
         for name in &self.automaton.rules.names {
-            strings.push(CString::new(name.clone()).unwrap());
+            strings.push(name.clone());
         }
-        if d.gui_button(rrect(0, 30, 100, 30), Some(rstr!("step"))) {
+        if d.gui_button(rrect(0, 30, 100, 30), "step") {
             self.should_step = true;
         } else {
             self.should_step = false;
         }
-        self.ui_state.selected_state = d.gui_list_view_ex(
+        d.gui_list_view_ex(
             rrect(0, 60, 100, 300.min(height - 60)),
-            &strings.iter().map(|a| a.borrow()).collect::<Vec<&CStr>>(),
+            strings.iter(),
             &mut 1,
+            &mut self.ui_state.selected_state,
             &mut self.ui_state.type_scroll,
-            // &mut self.selected_state,
-            self.ui_state.selected_state,
         );
 
-        if d.gui_button(rrect(100, 0, 100, 30), Some(rstr!("open world"))) {
+        if d.gui_button(rrect(100, 0, 100, 30), "open world") {
             if let Some(file) = FileDialog::new().pick_file() {
                 if let Ok(content) = fs::read_to_string(file) {
                     if let Ok(deserialized) = serde_json::from_str(&content) {
@@ -515,7 +514,7 @@ impl App {
                 println!("unable to pick file")
             }
         }
-        if d.gui_button(rrect(200, 0, 100, 30), Some(rstr!("save_world"))) {
+        if d.gui_button(rrect(200, 0, 100, 30), "save_world") {
             if let Some(file_choice) = FileDialog::new().save_file() {
                 if let Ok(mut file) = File::create(file_choice) {
                     if let Ok(parsed) = serde_json::to_string_pretty(&self.automaton) {
@@ -532,7 +531,7 @@ impl App {
             }
         }
 
-        if d.gui_button(rrect(300, 0, 100, 30), Some(rstr!("Midi settings"))) {
+        if d.gui_button(rrect(300, 0, 100, 30), "Midi settings") {
             self.scene = Scene::MidiSelect;
         }
 
@@ -543,12 +542,12 @@ impl App {
             &mut self.ui_state.node_edit_mode,
         );
 
-        if d.gui_button(rrect(40, 360, 60, 30), Some(rstr!("note"))) {
+        if d.gui_button(rrect(40, 360, 60, 30), "note") {
             for selected in &self.ui_state.selected {
                 self.automaton.graph.nodes[*selected].note = Some(self.ui_state.note.clone())
             }
         }
-        if d.gui_button(rrect(0, 390, 100, 30), Some(rstr!("clear note"))) {
+        if d.gui_button(rrect(0, 390, 100, 30), "clear note") {
             for selected in &self.ui_state.selected {
                 self.automaton.graph.nodes[*selected].note = None;
             }
@@ -624,7 +623,7 @@ fn distribute_hue(index: u32) -> f32 {
 fn draw_spring_arrow(d: &mut RaylibDrawHandle, start: Vec2, end: Vec2, color: Color, radius: f32) {
     // Calculate arrowhead size based on spring length
     let spring_length = (end - start).length();
-    let arrowhead_size = spring_length / 20.0;
+    let arrowhead_size = 5.0;
 
     // Calculate normalized direction vector of the spring
     let direction = (end - start).normalized();
@@ -637,17 +636,16 @@ fn draw_spring_arrow(d: &mut RaylibDrawHandle, start: Vec2, end: Vec2, color: Co
 
     let control_point = (start + end) / 2.0 + perpendicular * (end - start).length() * 0.2;
 
-    let arrow_direction = (end - control_point).normalized();
     let arrow_perpendicular = Vec2 {
-        x: -arrow_direction.y,
-        y: arrow_direction.x,
+        x: -direction.y,
+        y: direction.x,
     };
 
     // Calculate arrowhead points
     let arrowhead_left =
-        end - (arrow_direction * arrowhead_size) + (arrow_perpendicular * arrowhead_size);
+        end - (direction * arrowhead_size) + (arrow_perpendicular * arrowhead_size);
     let arrowhead_right =
-        end - (arrow_direction * arrowhead_size) - (arrow_perpendicular * arrowhead_size);
+        end - (direction * arrowhead_size) - (arrow_perpendicular * arrowhead_size);
 
     // Draw arrowhead triangle
     d.draw_triangle(
@@ -657,13 +655,11 @@ fn draw_spring_arrow(d: &mut RaylibDrawHandle, start: Vec2, end: Vec2, color: Co
         color,
     );
 
-    d.draw_line_bezier_quad(
+    d.draw_line_v(
         <Vec2 as Into<Vector2>>::into(start + direction * radius),
         <Vec2 as Into<Vector2>>::into(end - direction * radius),
-        <Vec2 as Into<Vector2>>::into(control_point),
-        1.0,
         color,
-    )
+    );
 }
 
 fn find_rect(corner_1: Vector2, corner_2: Vector2) -> Rectangle {
@@ -780,7 +776,7 @@ fn note_input_box(
         && mouse.y > rect.y
         && mouse.x < rect.x + rect.width
         && mouse.y < rect.y + rect.height;
-    if d.is_mouse_button_pressed(MouseButton::MOUSE_LEFT_BUTTON) {
+    if d.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
         if hovering {
             *edit_mode = true
         } else {
@@ -804,7 +800,7 @@ fn note_input_box(
     } else {
         Color::SKYBLUE
     };
-    d.draw_rectangle_lines_ex(rect, 2, line_color);
+    d.draw_rectangle_lines_ex(rect, 2.0, line_color);
 
     if *edit_mode {
         if d.is_key_pressed(KeyboardKey::KEY_C) {
